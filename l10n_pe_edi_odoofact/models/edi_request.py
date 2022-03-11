@@ -9,9 +9,13 @@
 #
 ###############################################################################
 
+import os
 import json, requests
 import urllib3
 from datetime import datetime, date, timedelta
+import logging
+import zipfile
+import xml.etree.ElementTree as ET
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError, RedirectWarning
