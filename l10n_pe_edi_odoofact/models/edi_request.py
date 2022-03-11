@@ -20,6 +20,8 @@ import xml.etree.ElementTree as ET
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError, RedirectWarning
 
+_logger = logging.getLogger(__name__)
+
 class EdiRequest(models.Model):
 	_name = 'l10n_pe_edi.request'
 	_description = 'EDI PE Request'
