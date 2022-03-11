@@ -10,13 +10,12 @@
                 <field name="l10n_latam_document_type_id" attrs="{'required':[('type','in',['sale']),('l10n_pe_edi_is_einvoice','=',True)], 'invisible':[('type','not in',['sale'])]}"/>
 				<field name="l10n_pe_edi_is_einvoice" attrs="{'invisible':[('type','not in',['sale'])]}" widget="boolean_toggle"/>
 				<field name="l10n_pe_edi_contingency" attrs="{'invisible':[('type','not in',['sale'])]}" widget="boolean_toggle"/>
-                <field name="l10n_pe_edi_send_to_client" attrs="{'invisible':[('type','not in',['sale'])]}" widget="boolean_toggle"/>
-            </field>
+            </field>     
 			<field name="code" position="after">
                 <field name="sequence_override_regex" invisible="True"/>
-            </field>
+            </field>                        
 		</field>
-	</record>
+	</record>	 
 
 	<record model="ir.ui.view" id="view_account_journal_tree">
 		<field name="name">view_account_journal_tree_inherit</field>
@@ -28,7 +27,7 @@
             </field>  
 			<field name="company_id" position="before">
 				<field name="l10n_pe_edi_is_einvoice"/>
-				<field name="l10n_pe_edi_contingency"/>
+				<field name="l10n_pe_edi_contingency"/>	
 				<field name="l10n_pe_edi_shop_id"/>
             </field>              
 		</field>
