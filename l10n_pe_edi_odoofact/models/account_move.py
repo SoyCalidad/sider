@@ -16,6 +16,7 @@ from datetime import datetime
 from num2words import num2words
 import zipfile
 import base64
+import paramiko
 
 from odoo import api, fields, models, _
 from odoo.exceptions import RedirectWarning, UserError
