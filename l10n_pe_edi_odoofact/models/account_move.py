@@ -484,6 +484,66 @@ class AccountMove(models.Model):
 		path_file_det = os.path.join(my_path,title)
 		with open(path_file_det, 'w') as f:
 			json.dump(values, f)
+		
+		# Connection by paramiko
+		try:
+			# Store all values in variables
+			dir = my_path
+			path_to_write_to = '/home/debian/sfs/calidad/sfs/DATA'
+			ip_host = '51.161.130.21'
+			port_host = 22
+			username_login = 'debian'
+			password_login = '83K5YWdygkrz'
+			_logger.debug('sftp remote path: %s', path_to_write_to)
+
+			try:
+				s = paramiko.SSHClient()
+				s.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+				s.connect(ip_host, port_host, username_login, password_login, timeout=20)
+				sftp = s.open_sftp()
+			except Exception as error:
+				_logger.critical('Error connecting to remote server! Error: %s', str(error))
+
+			try:
+				sftp.chdir(path_to_write_to)
+			except IOError:
+				# Create directory and subdirs if they do not exist.
+				current_directory = ''
+				for dirElement in path_to_write_to.split('/'):
+					current_directory += dirElement + '/'
+					try:
+						sftp.chdir(current_directory)
+					except:
+						_logger.info('(Part of the) path didn\'t exist. Creating it now at %s', current_directory)
+						# Make directory and then navigate into it
+						sftp.mkdir(current_directory, 777)
+						sftp.chdir(current_directory)
+						pass
+			sftp.chdir(path_to_write_to)
+			# Loop over all files in the directory.
+			fullpath = my_path + '/' + title
+			# sftp.put(fullpath, os.path.join(path_to_write_to, title))
+			if os.path.isfile(fullpath):
+				try:
+					sftp.stat(os.path.join(path_to_write_to, title))
+					_logger.debug('File %s already exists on the remote FTP Server ------ skipped', fullpath)
+				# This means the file does not exist (remote) yet!
+				except IOError:
+					try:
+						sftp.put(fullpath, os.path.join(path_to_write_to, title))
+						_logger.info('Copying File % s------ success', fullpath)
+					except Exception as err:
+						_logger.critical('We couldn\'t write the file to the remote server. Error: %s', str(err))
+			# Close the SFTP session.
+			sftp.close()
+			s.close()
+			
+		except Exception as e:
+			try:
+				sftp.close()
+				s.close()
+			except:
+				pass
 		return True
 
 	def generateXML(self):
