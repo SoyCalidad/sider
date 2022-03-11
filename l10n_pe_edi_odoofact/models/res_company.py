@@ -10,12 +10,12 @@
 ###############################################################################
 
 import logging
+
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from odoo.fields import Date, Datetime
 from odoo import models, fields, api, _
-from odoo.exceptions import ValidationError, UserError, AccessError
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
@@ -86,3 +86,45 @@ class ResCompany(models.Model):
                     move.l10n_pe_edi_cron_count -= 1
                     self.env.cr.commit()
                     _logger.exception('Something went wrong on Batch of Electronic invoices')
+    
+    def get_doc_types(self): #----------
+        return ['01','03','07','08']
+    
+    def get_moves_dict(self, ids): #----------
+        moves = self.env['account.move'].browse(ids)
+        return [{
+            'shop': move.l10n_pe_edi_shop_id and move.l10n_pe_edi_shop_id.name or '',
+            'date': move.invoice_date,
+            'type_code': move.l10n_latam_document_type_id and move.l10n_latam_document_type_id.code or '',
+            'type': move.l10n_latam_document_type_id and move.l10n_latam_document_type_id.name or '',
+            'name': move.name,
+            'ose': move.l10n_pe_edi_ose_accepted,
+            'sunat': move.l10n_pe_edi_sunat_accepted,
+            'error': move.l10n_pe_edi_response,
+        } for move in moves]
+    
+    def get_data_dict(self, edi_requests): #----------
+        data = []
+        if edi_requests:
+            move_edi_requests = [x for x in edi_requests if x['type'] == 'invoice']
+            move_ids = [x['res_id'] for x in move_edi_requests]
+            data = self.get_moves_dict(move_ids)
+        return data
+    
+    def replace_body_html(self, body_html, days, date, type_count): #----------
+        body_html = body_html.replace('--days--', str(days))
+        body_html = body_html.replace('--date--', str(date))
+        body_html = body_html.replace('--lines--', str(self.get_email_template_lines()))
+        body_html = body_html.replace('--01_count--', str(type_count['01']))
+        body_html = body_html.replace('--03_count--', str(type_count['03']))
+        body_html = body_html.replace('--07_count--', str(type_count['07']))
+        body_html = body_html.replace('--08_count--', str(type_count['08']))
+        return body_html
+
+    def get_email_template_lines(self): #----------
+        return _("""
+            <li>(--01_count--) INVOICES NOT SENT AND / OR NOT ACCEPTED</li>
+            <li>(--03_count--) BOLETAS NOT SENT AND / OR NOT ACCEPTED</li>
+            <li>(--07_count--) CREDIT NOTES NOT SENT AND / OR NOT ACCEPTED</li>
+            <li>(--08_count--) DEBIT NOTES NOT SENT AND / OR NOT ACCEPTED</li>
+        """)

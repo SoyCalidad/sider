@@ -49,6 +49,7 @@
                                                 <li>Date: <strong>${object.invoice_date or 'n/a'}</strong></li>
                                                 <li>Due date: <strong>${object.invoice_date_due or object.invoice_date}</strong></li>
                                                 <li>Total amount: <strong>${format_amount(object.amount_total, object.currency_id)}</strong></li>
+                                                <li>Description: <strong>${object.narration}</strong></li>
                                             </ul>
                                             <p>
                                                 The electronic document in PDF and XML formats is attached to this message. 
