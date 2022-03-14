@@ -37,7 +37,6 @@ class EdiRequest(models.Model):
 	link_document= fields.Char('Invoice link', compute='compute_request_data', store=True) 
 	link_pdf = fields.Char('PDF link', compute='compute_request_data', store=True)
 	link_xml = fields.Char('XML link', compute='compute_request_data', store=True)
-	link_cdr = fields.Char('CDR link', compute='compute_request_data', store=True)
 	log_ids = fields.One2many('l10n_pe_edi.request.log','request_id', string='EDI log', copy=False)
 	model = fields.Char(string='Model Name')
 	ose_accepted = fields.Boolean('Sent to PSE/OSE', compute='compute_request_data', store=True, tracking=True)  
@@ -85,11 +84,14 @@ class EdiRequest(models.Model):
 				req.ose_accepted = log_id and log_id.ose_accepted or False
 			else:
 				req.ose_accepted = log_id_ose_accepted and log_id_ose_accepted[0].ose_accepted or False
+			# req.sunat_accepted = log_id_ose_accepted[0].sunat_accepted or False
+			# req.link_document = log_id_ose_accepted[0].link_document or ''
+			# req.link_pdf = log_id_ose_accepted[0].link_pdf or ''
+			# req.link_xml = log_id_ose_accepted[0].link_xml or ''				
 			req.sunat_accepted = log_id_ose_accepted and log_id_ose_accepted[0].sunat_accepted or False
 			req.link_document = log_id_ose_accepted and log_id_ose_accepted[0].link_document or ''
 			req.link_pdf = log_id_ose_accepted and log_id_ose_accepted[0].link_pdf or ''
 			req.link_xml = log_id_ose_accepted and log_id_ose_accepted[0].link_xml or ''            
-			req.link_cdr = log_id_ose_accepted and log_id_ose_accepted[0].link_cdr or ''            
 			req.response = log_id and log_id.response or ''
 	
 	def action_document_send(self):
@@ -233,9 +235,6 @@ class EdiRequest(models.Model):
 			'sunat_soap_error': response.get('sunat_soap_error','')}
 		#~ Register log
 		self.env['l10n_pe_edi.request.log'].create(values_log)
-		# If response code is 23 ("Documento ya existe") ----------------
-		if int(response.get("codigo", 0)) == 23:
-			self.action_document_check()
 		return True
 	
 	def action_open_edi_request(self):

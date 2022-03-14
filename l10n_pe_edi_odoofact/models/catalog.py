@@ -10,6 +10,7 @@
 ###############################################################################
 
 from odoo import models, fields, api
+from odoo.osv import expression
 
 class L10nLatamDocumentType(models.Model):
     _inherit = 'l10n_latam.document.type'
