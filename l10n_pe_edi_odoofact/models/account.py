@@ -27,15 +27,6 @@ class AccountJournal(models.Model):
 	l10n_pe_edi_shop_id = fields.Many2one('l10n_pe_edi.shop', string='Shop')
 	l10n_latam_document_type_id = fields.Many2one('l10n_latam.document.type', string='Electronic document type', help='Catalog 01: Type of electronic document', compute='_get_document_type', readonly=False, store=True)
 	l10n_pe_edi_is_einvoice = fields.Boolean('Is E-invoice')
-	l10n_pe_edi_send_to_client = fields.Boolean('Send to Client')
-
-	@api.model
-	def create(self, vals):
-		res = super(AccountJournal, self).create(vals)
-		# FIXED for apply only to sale journals
-		if res.company_id.country_id.code == 'PE' and res.type == 'sale':
-			res.sequence_override_regex = r'^(?P<prefix1>.*?)(?P<seq>\d*)(?P<suffix>\D*?)$'
-		return res
 	
 	@api.depends('type')
 	def _get_document_type(self):

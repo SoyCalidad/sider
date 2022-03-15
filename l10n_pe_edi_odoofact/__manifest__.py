@@ -11,7 +11,7 @@
 
 {
     'name': 'Factura Electronica - Peru',
-    'version': '14.0.10',
+    'version': '0.5',
     'author': 'OPeru',
     'category': 'Accounting',
     'summary': 'Factura electronica Peru con PSE/OSE Nubefact',
@@ -19,18 +19,13 @@
     EDI Peruvian Localization
     Allow the user to generate the EDI document for Peruvian invoicing with PSE/OSE Nubefact.
     ''',
-    'depends': [
-        'account',
-        'sale',
-        'base',
-        'web',
-        'uom',
-        'account_debit_note',
-        'l10n_pe', 
-        'l10n_latam_base', 
-        'l10n_latam_invoice_document',
-        'l10n_pe_edi_catalog'
-    ],
+    'depends': ['account', 'base', 'web',
+                'uom',
+                'account_debit_note',
+                'l10n_pe', 
+                'l10n_latam_base', 
+                'l10n_latam_invoice_document',
+                'l10n_pe_edi_catalog'],
     'data': [
         'wizard/account_move_reversal_view.xml',
         'wizard/account_debit_note_view.xml',
@@ -45,8 +40,6 @@
         'views/edi_shop_views.xml',
         'views/report_menu_view.xml',
         'views/uom_uom_views.xml',
-        'views/catalog_views.xml',
-        'report/report_assets.xml',
         'data/l10n_latam_identification_type_data.xml',
         'data/account_tax_data.xml',
         'data/currency_data.xml',
@@ -54,7 +47,6 @@
         'data/l10n_pe_edi_data.xml',
         'data/mail_template_data.xml',
         'data/uom_data.xml',
-        'template/send_invoice_report_email_template.xml',
         'views/res_config_settings_views.xml',
         'views/report_invoice.xml',
         'security/ir.model.access.csv',        
@@ -63,8 +55,9 @@
     'images': ['static/description/banner.png'],
     'live_test_url': 'http://www.operu.pe/manuales',
     'license': 'OPL-1',
-    'support': 'modulos@operu.pe',
+    'support': 'soporte@operu.pe',
     'sequence': 1,
+
     'post_init_hook': '_l10n_pe_edi_odoofact_init',
 }
 

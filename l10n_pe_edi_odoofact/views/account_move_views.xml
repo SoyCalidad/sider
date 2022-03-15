@@ -43,8 +43,7 @@
                     <label for="l10n_pe_edi_operation_type" style="font-weight:bold;"/>
                 </div>
                 <field name="l10n_pe_edi_operation_type" nolabel="1" attrs="{'invisible': ['|',('move_type', 'not in', ('out_invoice', 'out_refund', 'out_receipt')),('l10n_pe_edi_is_einvoice','=',False)], 'readonly': [('state', '!=', 'draft')]}"/>
-                <field name="l10n_pe_edi_internal_type" invisible="True"/>
-                <field name="l10n_pe_edi_is_advance" invisible="True"/>
+                <field name="l10n_pe_edi_internal_type" invisible="True"/>                
                 <div class="o_td_label" attrs="{'invisible': ['|',('move_type', 'not in', ('out_invoice', 'out_refund')),('l10n_pe_edi_is_einvoice','=',False)]}" readonly="True" force_save="True">
                     <label for="l10n_latam_document_type_id" style="font-weight:bold;"/>
                 </div>
@@ -111,25 +110,13 @@
                     <field name="l10n_pe_edi_reversal_serie"/>
                     <field name="l10n_pe_edi_reversal_number"/>
                     <field name="l10n_pe_edi_reversal_date"/>
-                </group>
-            </group>
-            <field name="qr_code_method" position="after">
+                </group>                          
+            </group>      
+            <field name="qr_code_method" position="after">                
                 <field name="l10n_pe_edi_is_einvoice"/>
-                <field name="l10n_pe_edi_is_sale_credit"/>
-            </field>
-            <xpath expr="//page[@id='aml_tab']" position="after">
-                <page id="dues" string="Dues" attrs="{'invisible': [('l10n_pe_edi_is_sale_credit','=',False)]}">
-                    <field name="l10n_pe_edi_dues_ids" nolabel="1" context="{'default_move_id': id}" force_save="1" attrs="{'readonly': [('state','=','posted'),('l10n_pe_edi_operation_type','!=','4')]}">
-                        <tree editable="bottom">
-                            <field name="dues_number"/>
-                            <field name="paid_date"/>
-                            <field name="amount" sum="Total"/>
-                        </tree>
-                    </field>
-                </page>
-            </xpath>
+            </field>  
             <xpath expr="//field[@name='invoice_line_ids']//tree/field[@name='tax_ids']" position="before">
-                <field name="l10n_pe_edi_igv_type" optional="hide" options="{'no_create_edit': True,'no_open':True}" force_save="1"/>
+                <field name="l10n_pe_edi_igv_type" optional="hide" options="{'no_create_edit': True,'no_open':True}"/>
             </xpath>
             <xpath expr="//field[@name='invoice_line_ids']//tree/field[@name='tax_ids']" position="after">
                 <field name="l10n_pe_edi_igv_amount" optional="show"/>
@@ -145,11 +132,6 @@
             <xpath expr="//field[@name='invoice_line_ids']//tree/field[@name='price_subtotal']" position="before">
                 <field name="l10n_pe_edi_price_base" optional="hide"/>
                 <field name="l10n_pe_edi_free_product" optional="hide"/>
-            </xpath>
-            <xpath expr="//field[@name='invoice_line_ids']//tree/field[@name='account_internal_group']" position="before">
-                <field name="l10n_pe_edi_regularization_advance" optional="hide"/>
-                <field name="l10n_pe_edi_advance_serie" optional="hide"/>
-                <field name="l10n_pe_edi_advance_number" optional="hide"/>
             </xpath>
             <xpath expr="//field[@name='invoice_line_ids']//tree" position="attributes">
                 <attribute name="decoration-success">l10n_pe_edi_free_product==True</attribute>
