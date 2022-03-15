@@ -16,6 +16,7 @@ from datetime import datetime, date, timedelta
 import logging
 import zipfile
 import xml.etree.ElementTree as ET
+import paramiko
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError, RedirectWarning
@@ -136,8 +137,37 @@ class EdiRequest(models.Model):
 
 	def action_api_connect_sfs(self, title):
 		path_file_rpta  = self.company_id.sfs_path + '/RPTA/R' + title + '.zip'
-		if os.path.exists(path_file_rpta):
-			_logger.info("Exist ---------------->")
+		
+		# Connection by paramiko
+		try:
+			path_to_write_to = self.company_id.sftp_path + '/RPTA'
+			ip_host = self.company_id.sftp_host
+			port_host = self.company_id.sftp_port
+			username_login = self.company_id.sftp_user
+			password_login = self.company_id.sftp_password
+			_logger.debug('sftp remote path: %s', path_to_write_to)
+			try:
+				s = paramiko.SSHClient()
+				s.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+				s.connect(ip_host, port_host, username_login, password_login, timeout=20)
+				sftp = s.open_sftp()
+			except Exception as error:
+				_logger.critical('Error connecting to remote server! Error: %s', str(error))
+			sftp.chdir(path_to_write_to)
+			try:
+				sftp.get(os.path.join(path_to_write_to, 'R' + title + '.zip'), path_file_rpta)
+				_logger.info('Copying File % s------ success', path_file_rpta)
+			except Exception as err:
+				_logger.critical('We couldn\'t write the file from the remote server. Error: %s', str(err))
+			sftp.close()
+			s.close()
+		except Exception as e:
+			try:
+				sftp.close()
+				s.close()
+			except:
+				pass
+
 		if os.path.exists(path_file_rpta):
 			archive = zipfile.ZipFile(path_file_rpta, 'r')
 			for filename in archive.namelist():

@@ -220,8 +220,8 @@ class AccountMove(models.Model):
 			if move.name and move.move_type in ['out_invoice','out_refund']:
 				inv_number = move.name.split('-')
 				if len(inv_number) == 2:
-					 move.l10n_pe_edi_serie = inv_number[0]
-					 move.l10n_pe_edi_number = inv_number[1]
+					move.l10n_pe_edi_serie = inv_number[0]
+					move.l10n_pe_edi_number = inv_number[1]
 		return True
 	
 	def _get_invoice_picking_number_values(self, pick_numbers):
@@ -531,10 +531,39 @@ class AccountMove(models.Model):
 			return False
 		ruc_inv = self.company_id.vat
 		num_inv = str(self.l10n_pe_edi_number).rjust(8, '0')
-		title = ruc_inv +'-'+ self.l10n_latam_document_type_id.code +'-'+ self.l10n_pe_edi_serie + '-' + num_inv
-		path_file_sent  = self.company_id.sfs_path + '/ENVIO/' + title + '.zip'
-		if os.path.exists(path_file_sent):
-			_logger.info("Exist ---------------->")
+		title = ruc_inv +'-'+ self.l10n_latam_document_type_id.code +'-'+ self.l10n_pe_edi_serie + '-' + num_inv + '.zip'
+		path_file_sent  = self.company_id.sfs_path + '/ENVIO/' + title
+		
+		# Connection by paramiko
+		try:
+			path_to_write_to = self.company_id.sftp_path + '/ENVIO'
+			ip_host = self.company_id.sftp_host
+			port_host = self.company_id.sftp_port
+			username_login = self.company_id.sftp_user
+			password_login = self.company_id.sftp_password
+			_logger.debug('sftp remote path: %s', path_to_write_to)
+			try:
+				s = paramiko.SSHClient()
+				s.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+				s.connect(ip_host, port_host, username_login, password_login, timeout=20)
+				sftp = s.open_sftp()
+			except Exception as error:
+				_logger.critical('Error connecting to remote server! Error: %s', str(error))
+			sftp.chdir(path_to_write_to)
+			try:
+				sftp.get(os.path.join(path_to_write_to, title), path_file_sent)
+				_logger.info('Copying File % s------ success', path_file_sent)
+			except Exception as err:
+				_logger.critical('We couldn\'t write the file from the remote server. Error: %s', str(err))
+			sftp.close()
+			s.close()
+		except Exception as e:
+			try:
+				sftp.close()
+				s.close()
+			except:
+				pass
+			
 		if os.path.exists(path_file_sent):
 			archive = zipfile.ZipFile(path_file_sent, 'r')
 			for filename in archive.namelist():

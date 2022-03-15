@@ -15,7 +15,14 @@
                             <field name="l10n_pe_edi_ose_id" options="{'no_create':True}"/>
                             <field name="l10n_pe_edi_ose_code" invisible="True"/>        
                             <field name="l10n_pe_edi_ose_url"/>
-                            <field name="l10n_pe_edi_ose_token"/>            
+                            <field name="l10n_pe_edi_ose_token"/>
+                            <field name="sftp_write"/>
+                            <field name="sftp_host" attrs="{'invisible':[('sftp_write', '=', False)],'required':[('sftp_write', '=', True)]}"/>
+                            <field name="sftp_port" attrs="{'invisible':[('sftp_write', '=', False)],'required':[('sftp_write', '=', True)]}"/>
+                            <field name="sftp_user" attrs="{'invisible':[('sftp_write', '=', False)], 'required':[('sftp_write', '=', True)]}"/>
+                            <field name="sftp_password" attrs="{'invisible':[('sftp_write', '=', False)],'required': [('sftp_write', '=', True)]}" password="True"/>
+                            <field name="sftp_path" attrs="{'invisible':[('sftp_write', '==', False)],'required':[('sftp_write', '==', True)]}" placeholder="Ejemplo: /odoo/backups/"/>
+                            <button name="test_sftp_connection" type="object" attrs="{'invisible': [('sftp_write','=',False)]}" string="Probar Conexión SFTP"/>  
                         </group>
                         <group string="Send invoices automatically">
                             <field name="l10n_pe_edi_send_invoice_interval_unit"/>
