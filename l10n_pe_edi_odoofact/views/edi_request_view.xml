@@ -73,7 +73,6 @@
                         </group>
                         <group name="links" string="Links">
                             <field name="link_document"  widget="url" readonly="True"/>
-                            <field name="link_cdr"  widget="url" readonly="True"/>
                             <field name="link_xml"  widget="url" readonly="True"/>
                             <field name="link_pdf"  widget="url" readonly="True"/>
                             <field name="response"/>
