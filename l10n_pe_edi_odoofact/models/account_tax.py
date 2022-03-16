@@ -24,6 +24,6 @@ class AccountTaxTemplate(models.Model):
     def _get_tax_vals(self, company, tax_template_to_tax):
         val = super()._get_tax_vals(company, tax_template_to_tax)
         val.update({
-            'l10n_pe_edi_isc_type': self.l10n_pe_edi_isc_type,
+            'l10n_pe_edi_isc_type': self.l10n_pe_edi_isc_type.id,
         })
         return val

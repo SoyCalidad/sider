@@ -11,9 +11,7 @@
 
 import os
 import json
-import re
 import logging
-import psycopg2
 from datetime import datetime
 from num2words import num2words
 import zipfile
@@ -21,9 +19,7 @@ import base64
 import paramiko
 
 from odoo import api, fields, models, _
-from odoo.exceptions import RedirectWarning, UserError, ValidationError
-from odoo.tools import float_is_zero, float_compare, safe_eval, date_utils
-from odoo.tools.misc import formatLang, format_date
+from odoo.exceptions import RedirectWarning, UserError
 
 from selenium import webdriver
 from selenium.webdriver.support import expected_conditions as EC
@@ -36,29 +32,33 @@ from selenium.webdriver.chrome.options import Options
 _logger = logging.getLogger(__name__)
 
 CURRENCY = {
-	'PEN': 1,        # Soles
-	'USD': 2,        # Dollars
-	'EUR': 3,        # Euros
+	"PEN": 1,        # Soles
+	"USD": 2,        # Dollars
+	"EUR": 3,        # Euros
 }
 
 class AccountMove(models.Model): 
-	
-	_inherit = 'account.move'  
+	_inherit = "account.move"
   
-	l10n_pe_edi_operation_type = fields.Selection([
-			('1','INTERNAL SALE'),
-			('2','EXPORTATION'),
-			('3','NON-DOMICILED'),
-			('4', 'INTERNAL SALE - ADVANCES'),
-			('5', 'ITINERANT SALE'),
-			('6', 'GUIDE INVOICE'),
-			('7', 'SALE PILADO RICE'),
-			('8', 'INVOICE - PROOF OF PERCEPTION'),
-			('10', 'INVOICE - SENDING GUIDE'),
-			('11', 'INVOICE - CARRIER GUIDE'),
-			('12', 'SALES TICKET - PROOF OF PERCEPTION'),
-			('13', 'NATURAL PERSON DEDUCTIBLE EXPENSE'),
-			],string='Transaction type', help='Default 1, the others are for very special types of operations, do not hesitate to consult with us for more information', default='1')
+	l10n_pe_edi_operation_type = fields.Selection(
+		[
+			("1", "INTERNAL SALE"),
+			("2", "EXPORTATION"),
+			("3", "NON-DOMICILED"),
+			("4", "INTERNAL SALE - ADVANCES"),
+			("5", "ITINERANT SALE"),
+			("6", "GUIDE INVOICE"),
+			("7", "SALE PILADO RICE"),
+			("8", "INVOICE - PROOF OF PERCEPTION"),
+			("10", "INVOICE - SENDING GUIDE"),
+			("11", "INVOICE - CARRIER GUIDE"),
+			("12", "SALES TICKET - PROOF OF PERCEPTION"),
+			("13", "NATURAL PERSON DEDUCTIBLE EXPENSE"),
+		],
+		string="Transaction type",
+		help="Default 1, the others are for very special types of operations, do not hesitate to consult with us for more information",
+		default="1"
+	)
 	l10n_latam_document_type_id = fields.Many2one(copy=True, compute='_get_l10n_latam_document_type_id', readonly=False, store=True, help="Select the Journal account to change the document type.")
 	l10n_pe_edi_internal_type = fields.Selection(
 		[('invoice', 'Invoices'), ('debit_note', 'Debit Notes'), ('credit_note', 'Credit Notes')], index=True, compute='_get_l10n_pe_edi_internal_type', help='Analog to odoo account.move.type but with more options allowing to identify the kind of document we are'
@@ -76,45 +76,42 @@ class AccountMove(models.Model):
 	l10n_pe_edi_shop_id = fields.Many2one('l10n_pe_edi.shop', string='Shop', related='journal_id.l10n_pe_edi_shop_id', store=True)
 	l10n_pe_edi_sunat_accepted = fields.Boolean('Accepted by SUNAT', related='l10n_pe_edi_request_id.sunat_accepted', store=True) 
 	
-	# ==== Business fields ====      
+	# ==== Business fields ====
 	l10n_pe_edi_serie = fields.Char(string='E-invoice Serie', compute='_get_einvoice_number', store=True)
 	l10n_pe_edi_number = fields.Integer(string='E-invoice Number', compute='_get_einvoice_number', store=True)
 	l10n_pe_edi_service_order = fields.Char(string='Purchase/Service order', help='This Purchase/service order will be shown on the electronic invoice')
 	l10n_pe_edi_picking_number_ids = fields.One2many('l10n_pe_edi.picking.number', 'invoice_id', string='Picking numbers')
+	l10n_pe_edi_reversal_type = fields.Selection([("1","Factura"),("2","Boleta")], string='Document type', help='Used for Credit and debit note', readonly=False)
 	l10n_pe_edi_reversal_serie = fields.Char(string='Document serie', help='Used for Credit and debit note', readonly=False)
 	l10n_pe_edi_reversal_number = fields.Char(string='Document number', help='Used for Credit and debit note', readonly=False)
 	l10n_pe_edi_reversal_date = fields.Date(string='Document date', help='Date of the Credit or debit note', readonly=False)
+	l10n_pe_edi_is_advance = fields.Boolean(string='Is Advance', compute='_get_is_advance', store=True)
+	l10n_pe_edi_is_sale_credit = fields.Boolean(string="Sale on Credit", compute='_get_is_sale_credit', store=True)
+	l10n_pe_edi_dues_ids = fields.One2many('l10n_pe_edi.dues', 'move_id', string='Dues', copy=False)
 
 	# === Amount fields ===
-	l10n_pe_edi_amount_subtotal = fields.Monetary(string='Subtotal',store=True, readonly=True, compute='_compute_edi_amount', tracking=True, help='Total without discounts and taxes')
-	l10n_pe_edi_amount_discount = fields.Monetary(string='Discount', store=True, readonly=True, compute='_compute_edi_amount', tracking=True)    
-	l10n_pe_edi_amount_base = fields.Monetary(string='Base Amount', store=True, readonly=True, compute='_compute_edi_amount', tracking=True, help='Total with discounts and before taxes')
-	l10n_pe_edi_amount_exonerated = fields.Monetary(string='Exonerated  Amount', store=True, compute='_compute_edi_amount', tracking=True)
-	l10n_pe_edi_amount_free = fields.Monetary(string='Free Amount', store=True, compute='_compute_edi_amount', tracking=True)
-	l10n_pe_edi_amount_unaffected = fields.Monetary(string='Unaffected Amount', store=True, compute='_compute_edi_amount', tracking=True)      
-	l10n_pe_edi_amount_untaxed = fields.Monetary(string='Total before taxes', store=True, compute='_compute_edi_amount', tracking=True, help='Total before taxes, all discounts included')   
-	l10n_pe_edi_global_discount = fields.Monetary(string='Global discount', store=True, readonly=True, compute='_compute_edi_amount', tracking=True)  
+	l10n_pe_edi_amount_subtotal = fields.Monetary(string='Subtotal',store=True, readonly=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True, help='Total without discounts and taxes')
+	l10n_pe_edi_amount_discount = fields.Monetary(string='Total Discount', store=True, readonly=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True)    
+	l10n_pe_edi_amount_base = fields.Monetary(string='Base Amount', store=True, readonly=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True, help='Total with discounts and before taxes')
+	l10n_pe_edi_amount_advance = fields.Monetary(string='Advance Amount', store=True, readonly=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True)
+	l10n_pe_edi_amount_exonerated = fields.Monetary(string='Exonerated  Amount', store=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True)
+	l10n_pe_edi_amount_free = fields.Monetary(string='Free Amount', store=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True)
+	l10n_pe_edi_amount_unaffected = fields.Monetary(string='Unaffected Amount', store=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True)      
+	l10n_pe_edi_amount_untaxed = fields.Monetary(string='Total before taxes', store=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True, help='Total before taxes, all discounts included')   
+	l10n_pe_edi_global_discount = fields.Monetary(string='Global discount', store=True, readonly=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True)  
 	l10n_pe_edi_amount_in_words = fields.Char(string="Amount in Words", compute='_l10n_pe_edi_amount_in_words')
+	
 	# ==== Tax fields ====
 	l10n_pe_edi_igv_percent = fields.Integer(string="Percentage IGV", compute='_get_percentage_igv')
-	l10n_pe_edi_amount_icbper = fields.Monetary(string='ICBPER Amount', compute='_compute_edi_amount',tracking=True)
-	l10n_pe_edi_amount_igv = fields.Monetary(string='IGV Amount', compute='_compute_edi_amount',tracking=True)
-	l10n_pe_edi_amount_isc = fields.Monetary(string='ISC Amount', store=True, compute='_compute_edi_amount',tracking=True)
-	l10n_pe_edi_amount_others = fields.Monetary(string='Other charges', compute='_compute_edi_amount',tracking=True)  
+	l10n_pe_edi_amount_icbper = fields.Monetary(string='ICBPER Amount', compute='_compute_edi_amount', compute_sudo=True, tracking=True)
+	l10n_pe_edi_amount_igv = fields.Monetary(string='IGV Amount', compute='_compute_edi_amount', compute_sudo=True, tracking=True)
+	l10n_pe_edi_amount_isc = fields.Monetary(string='ISC Amount', store=True, compute='_compute_edi_amount', compute_sudo=True, tracking=True)
+	l10n_pe_edi_amount_others = fields.Monetary(string='Other charges', compute='_compute_edi_amount', compute_sudo=True, tracking=True)  
 	l10n_pe_edi_is_einvoice = fields.Boolean('Is E-invoice', related='journal_id.l10n_pe_edi_is_einvoice', store=True)
 
-	amount_untaxed_signed = fields.Monetary(string='Untaxed Amount Signed', store=True, readonly=True,
-		compute='_compute_amount', currency_field='currency_id')
-	amount_tax_signed = fields.Monetary(string='Tax Signed', store=True, readonly=True,
-		compute='_compute_amount', currency_field='currency_id')
-	amount_total_signed = fields.Monetary(string='Total Signed', store=True, readonly=True,
-		compute='_compute_amount', currency_field='currency_id')
-	amount_residual_signed = fields.Monetary(string='Amount Due Signed', store=True,
-		compute='_compute_amount', currency_field='currency_id')	
-	
 	@api.onchange('partner_id')
 	def _onchange_partner_id(self):
-		if self.partner_id.l10n_latam_identification_type_id and self.partner_id.l10n_latam_identification_type_id.l10n_pe_vat_code == '0':
+		if self.company_id.country_id.code == 'PE' and self.partner_id.country_id and self.partner_id.country_id.code != 'PE':
 			self.l10n_pe_edi_operation_type = '2'
 		else:
 			self.l10n_pe_edi_operation_type = '1'
@@ -131,7 +128,7 @@ class AccountMove(models.Model):
 	@api.depends('l10n_latam_document_type_id','journal_id')
 	def _get_l10n_pe_edi_internal_type(self):
 		for move in self:
-			if move.move_type == 'out_invoice' and move.l10n_latam_document_type_id:
+			if move.move_type in ['out_invoice','out_refund'] and move.l10n_latam_document_type_id:
 				move.l10n_pe_edi_internal_type = move.l10n_latam_document_type_id.internal_type
 			else:
 				move.l10n_pe_edi_internal_type = False
@@ -144,6 +141,7 @@ class AccountMove(models.Model):
 		'line_ids.amount_residual',
 		'line_ids.amount_residual_currency',
 		'line_ids.payment_id.state',
+		'line_ids.l10n_pe_edi_regularization_advance',
 		'amount_by_group')
 	def _compute_edi_amount(self):
 		for move in self:
@@ -152,9 +150,11 @@ class AccountMove(models.Model):
 			l10n_pe_edi_global_discount = 0.0
 			l10n_pe_edi_amount_discount = 0.0
 			l10n_pe_edi_amount_subtotal = 0.0
+			l10n_pe_edi_amount_advance = 0.0
 			#~ E-invoice amounts
 			l10n_pe_edi_amount_free = 0.0
 			currencies = set()
+
 			if move.move_type == 'entry' or move.is_outbound():
 				sign = 1
 			else:
@@ -166,13 +166,15 @@ class AccountMove(models.Model):
 				if move.is_invoice(include_receipts=True):
 					# === Invoices ===
 					# If the amount is negative, is considerated as global discount
-					l10n_pe_edi_global_discount += line.l10n_pe_edi_price_base < 0 and line.l10n_pe_edi_price_base * sign * -1 or 0.0
+					l10n_pe_edi_global_discount += not line.l10n_pe_edi_regularization_advance and line.l10n_pe_edi_price_base < 0 and abs(line.l10n_pe_edi_price_base) or 0.0
 					# If the product is not free, it calculates the amount discount 
 					l10n_pe_edi_amount_discount += line.l10n_pe_edi_free_product == False and (line.l10n_pe_edi_price_base * line.discount)/100 or 0.0
 					# If the price_base is > 0, sum to the total without taxes and discounts
 					l10n_pe_edi_amount_subtotal += line.l10n_pe_edi_price_base > 0 and line.l10n_pe_edi_price_base or 0.0
 					# Free product amount
 					l10n_pe_edi_amount_free += line.l10n_pe_edi_amount_free
+					# If regularization advance is true, is considerated as advance
+					l10n_pe_edi_amount_advance += line.l10n_pe_edi_regularization_advance and line.l10n_pe_edi_price_base or 0.0
 				# Affected by IGV
 				if not line.exclude_from_invoice_tab and any(tax.l10n_pe_edi_tax_code in ['1000'] for tax in line.tax_ids):
 					# Untaxed amount.
@@ -190,11 +192,12 @@ class AccountMove(models.Model):
 			move.l10n_pe_edi_amount_others = sum([x[1] for x in move.amount_by_group if x[0] == 'OTROS'])
 			move.l10n_pe_edi_amount_untaxed = move.l10n_pe_edi_amount_base - move.l10n_pe_edi_amount_free
 			# TODO Global discount
+			move.l10n_pe_edi_amount_advance = l10n_pe_edi_amount_advance
 			move.l10n_pe_edi_global_discount = l10n_pe_edi_global_discount
-			move.l10n_pe_edi_amount_discount = l10n_pe_edi_amount_discount
+			move.l10n_pe_edi_amount_discount = l10n_pe_edi_global_discount + l10n_pe_edi_amount_discount
 			move.l10n_pe_edi_amount_subtotal = l10n_pe_edi_amount_subtotal
 			move.l10n_pe_edi_amount_free = l10n_pe_edi_amount_free
-	
+
 	@api.depends('amount_total','currency_id')
 	def _l10n_pe_edi_amount_in_words(self):
 		"""Transform the amount to text
@@ -220,19 +223,56 @@ class AccountMove(models.Model):
 			if move.name and move.move_type in ['out_invoice','out_refund']:
 				inv_number = move.name.split('-')
 				if len(inv_number) == 2:
-					move.l10n_pe_edi_serie = inv_number[0]
-					move.l10n_pe_edi_number = inv_number[1]
+					 move.l10n_pe_edi_serie = inv_number[0]
+					 move.l10n_pe_edi_number = inv_number[1]
 		return True
 	
-	def _get_invoice_picking_number_values(self, pick_numbers):
-		res = []
-		for pick in pick_numbers:
-			values = {
-				'guia_tipo': int(pick.type),
-				'guia_serie_numero': pick.name
-			}
-			res.append(values)
-		return res
+	@api.depends('invoice_line_ids', 'invoice_line_ids.product_id')
+	def _get_is_advance(self):
+		self.l10n_pe_edi_is_advance = False
+		for move in self:
+			for line in move.invoice_line_ids:
+				if line.product_id and line.product_id.l10n_pe_edi_is_for_advance:
+					move.l10n_pe_edi_is_advance = True
+					break
+	
+	@api.depends('invoice_payment_term_id', 'invoice_date', 'invoice_date_due')
+	def _get_is_sale_credit(self):
+		for move in self:
+			l10n_pe_edi_is_sale_credit = False
+			if move.l10n_latam_document_type_id.code == '01' and move.move_type == 'out_invoice':
+				if any(
+					line.date_maturity > (move.invoice_date or fields.Date.today())
+					for line in move.line_ids.filtered(lambda x: x.exclude_from_invoice_tab and x.date_maturity)
+				):
+					l10n_pe_edi_is_sale_credit = True
+			move.l10n_pe_edi_is_sale_credit = l10n_pe_edi_is_sale_credit
+	
+	@api.onchange('l10n_pe_edi_is_sale_credit')    
+	def _get_dues_ids(self):
+		if self.l10n_pe_edi_is_sale_credit:
+			self.l10n_pe_edi_dues_ids = False
+			number = 0
+			dues = []
+			for line in self.line_ids.filtered(lambda x: x.exclude_from_invoice_tab and x.date_maturity != False and x.debit > 0.0):
+				number += 1
+				amount = abs(line.amount_currency)
+				vals = {
+					'move_id': self.id,
+					'dues_number': number,
+					'paid_date': line.date_maturity,
+					'amount': amount,
+				}
+				dues.append((0,0,vals))
+			self.l10n_pe_edi_dues_ids = dues
+	
+	def _onchange_after_recompute_dynamic_lines(self):
+		self._get_dues_ids()
+	
+	@api.onchange('line_ids', 'invoice_payment_term_id', 'invoice_date_due', 'invoice_date', 'invoice_cash_rounding_id', 'invoice_vendor_bill_id')
+	def _onchange_recompute_dynamic_lines(self):
+		super(AccountMove, self)._onchange_recompute_dynamic_lines()
+		self._onchange_after_recompute_dynamic_lines()
 	
 	@api.depends('amount_by_group')
 	def _get_percentage_igv(self):
@@ -250,20 +290,26 @@ class AccountMove(models.Model):
 		for move in self: 
 			if move.move_type in ['out_invoice','out_refund']:
 				if move.debit_origin_id:
+						move.l10n_pe_edi_reversal_type = move.debit_origin_id.l10n_pe_edi_serie and move.debit_origin_id.l10n_pe_edi_serie[0] == "F" and "1" or "2"
 						move.l10n_pe_edi_reversal_serie = move.debit_origin_id.l10n_pe_edi_serie
 						move.l10n_pe_edi_reversal_number = move.debit_origin_id.l10n_pe_edi_number
 						move.l10n_pe_edi_reversal_date = move.debit_origin_id.invoice_date
 				if move.reversed_entry_id:
+						move.l10n_pe_edi_reversal_type = move.reversed_entry_id.l10n_pe_edi_serie and move.reversed_entry_id.l10n_pe_edi_serie[0] == "F" and "1" or "2"
 						move.l10n_pe_edi_reversal_serie = move.reversed_entry_id.l10n_pe_edi_serie
 						move.l10n_pe_edi_reversal_number = move.reversed_entry_id.l10n_pe_edi_number
 						move.l10n_pe_edi_reversal_date = move.reversed_entry_id.invoice_date                      
 
 	def action_post(self):
-		if self.move_type in ['out_invoice','out_refund'] and self.l10n_pe_edi_is_einvoice and self.amount_total > 700 and not self.partner_id.vat:
-			raise UserError(_('Please Define the Customer Document Number.'))
 		# Restart the Number of attempts available for sending electronic invoices by the Cron
 		for move in self:
 			move.l10n_pe_edi_cron_count = 5
+			if move.move_type in ['out_invoice', 'out_refund', 'out_receipt'] and move.l10n_pe_edi_is_einvoice:
+				if move.amount_total > 700 and not move.partner_id.vat:
+					raise UserError(_('Please Define the Customer Document Number.'))
+				
+				if move.l10n_pe_edi_is_advance and move.l10n_pe_edi_operation_type != '4':
+					raise UserError(_('The field Transaction Type must be advance because you are using an advance type product.'))
 		super(AccountMove, self).action_post()
 
 	def get_invoice_values_sfs(self):
@@ -430,7 +476,7 @@ class AccountMove(models.Model):
 							values['detallePago'].append(dato_line)
 					values['datoPago']["mtoNetoPendientePago"] = "%.2f" % (abs(self.amount_total) - counted_total)
 				
-		_logger.info(values)
+		# _logger.info(values)
 		ruc_inv = self.company_id.vat
 		num_inv = str(self.l10n_pe_edi_number).rjust(8, '0')
 		title = ruc_inv +'-'+ self.l10n_latam_document_type_id.code +'-'+ self.l10n_pe_edi_serie + '-' + num_inv + '.JSON'
@@ -444,11 +490,11 @@ class AccountMove(models.Model):
 		try:
 			# Store all values in variables
 			dir = my_path
-			path_to_write_to = '/home/debian/sfs/soyisodigital/sfs/DATA'
-			ip_host = '51.79.67.147'
+			path_to_write_to = '/home/debian/sfs/calidad/sfs/DATA'
+			ip_host = '51.161.130.21'
 			port_host = 22
 			username_login = 'debian'
-			password_login = 'UXfF43TZF4CH'
+			password_login = '83K5YWdygkrz'
 			_logger.debug('sftp remote path: %s', path_to_write_to)
 
 			try:
@@ -499,13 +545,12 @@ class AccountMove(models.Model):
 				s.close()
 			except:
 				pass
-
 		return True
 
 	def generateXML(self):
 		# my_path = self.company_id.sfs_path + '/chromedriver'
 		path_chrome = '/mnt/extra-addons/l10n_pe_edi_odoofact/models/chromedriver'
-		_logger.info(path_chrome)
+		# _logger.info(path_chrome)
 		chrome_options = Options()
 		chrome_options.add_argument("--headless")
 		chrome_options.add_argument("--no-sandbox")
@@ -531,39 +576,10 @@ class AccountMove(models.Model):
 			return False
 		ruc_inv = self.company_id.vat
 		num_inv = str(self.l10n_pe_edi_number).rjust(8, '0')
-		title = ruc_inv +'-'+ self.l10n_latam_document_type_id.code +'-'+ self.l10n_pe_edi_serie + '-' + num_inv + '.zip'
-		path_file_sent  = self.company_id.sfs_path + '/ENVIO/' + title
-		
-		# Connection by paramiko
-		try:
-			path_to_write_to = self.company_id.sftp_path + '/ENVIO'
-			ip_host = self.company_id.sftp_host
-			port_host = self.company_id.sftp_port
-			username_login = self.company_id.sftp_user
-			password_login = self.company_id.sftp_password
-			_logger.debug('sftp remote path: %s', path_to_write_to)
-			try:
-				s = paramiko.SSHClient()
-				s.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-				s.connect(ip_host, port_host, username_login, password_login, timeout=20)
-				sftp = s.open_sftp()
-			except Exception as error:
-				_logger.critical('Error connecting to remote server! Error: %s', str(error))
-			sftp.chdir(path_to_write_to)
-			try:
-				sftp.get(os.path.join(path_to_write_to, title), path_file_sent)
-				_logger.info('Copying File % s------ success', path_file_sent)
-			except Exception as err:
-				_logger.critical('We couldn\'t write the file from the remote server. Error: %s', str(err))
-			sftp.close()
-			s.close()
-		except Exception as e:
-			try:
-				sftp.close()
-				s.close()
-			except:
-				pass
-			
+		title = ruc_inv +'-'+ self.l10n_latam_document_type_id.code +'-'+ self.l10n_pe_edi_serie + '-' + num_inv
+		path_file_sent  = self.company_id.sfs_path + '/ENVIO/' + title + '.zip'
+		if os.path.exists(path_file_sent):
+			_logger.info("Exist ---------------->")
 		if os.path.exists(path_file_sent):
 			archive = zipfile.ZipFile(path_file_sent, 'r')
 			for filename in archive.namelist():
@@ -587,20 +603,20 @@ class AccountMove(models.Model):
 								'state': 'to_send',
 								'attachment_id': attachment.id,
 							})
-		_logger.info("Sent ---------------->")
+		# _logger.info("Sent ---------------->")
 		return self.invoice_return_xml()
 
 	def invoice_return_xml(self):
-		_logger.info("Print ---------------->")
+		# _logger.info("Print ---------------->")
 		if not self.edi_document_ids:
 			return False
 		id_doc = self.edi_document_ids[0].attachment_id
-		_logger.info(id_doc)
+		# _logger.info(id_doc)
 		return {
 			"type": 'ir.actions.act_url',
 			"url": "web/content/?model=ir.attachment&id=" + str(id_doc.id) + "&filename_field=name&field=datas&download=true&name=" + id_doc.name,
 			"target": 'self',
-		}						
+		}	
 
 	def _get_invoice_values_odoofact(self):
 		"""
@@ -620,9 +636,9 @@ class AccountMove(models.Model):
 			'invoice_id': self.id,
 			"operacion": "generar_comprobante",
 			'tipo_de_comprobante': self.l10n_latam_document_type_id.type_of,
-			'sunat_transaction': int(self.l10n_pe_edi_operation_type),
 			'serie': self.l10n_pe_edi_serie, 
 			'numero': str(self.l10n_pe_edi_number),
+			'sunat_transaction': int(self.l10n_pe_edi_operation_type),
 			'cliente_tipo_de_documento': self.partner_id.commercial_partner_id.l10n_latam_identification_type_id and self.partner_id.commercial_partner_id.l10n_latam_identification_type_id.l10n_pe_vat_code or '1',
 			'cliente_numero_de_documento': self.partner_id.commercial_partner_id.vat and self.partner_id.commercial_partner_id.vat or '00000000',
 			'cliente_denominacion': self.partner_id.commercial_partner_id.name or self.partner_id.commercial_partner_id.name,
@@ -635,38 +651,38 @@ class AccountMove(models.Model):
 								+ (self.partner_id.state_id and ', ' + self.partner_id.state_id.name or '') \
 								+ (self.partner_id.country_id and ', ' + self.partner_id.country_id.name or ''),
 			'cliente_email': self.partner_id.email and self.partner_id.email or self.partner_id.email,
-			'codigo_unico': '%s|%s|%s-%s' %('odoo',self.company_id.partner_id.vat,self.l10n_pe_edi_serie,str(self.l10n_pe_edi_number)),
 			'fecha_de_emision': datetime.strptime(str(self.invoice_date), "%Y-%m-%d").strftime("%d-%m-%Y"),
 			'fecha_de_vencimiento': self.invoice_date_due and datetime.strptime(str(self.invoice_date_due), "%Y-%m-%d").strftime("%d-%m-%Y") or '',
-			"generado_por_contingencia": self.journal_id.l10n_pe_edi_contingency and 'true' or 'false',
 			'moneda': currency,
 			'tipo_de_cambio': round(1/currency_exchange,3),
 			'porcentaje_de_igv': self.l10n_pe_edi_igv_percent,
 			'descuento_global': abs(self.l10n_pe_edi_global_discount),
 			'total_descuento': abs(self.l10n_pe_edi_amount_discount),
+			'total_anticipo': abs(self.l10n_pe_edi_amount_advance),
 			'total_gravada': abs(self.l10n_pe_edi_amount_base),
 			'total_inafecta': abs(self.l10n_pe_edi_amount_unaffected),
 			'total_exonerada': abs(self.l10n_pe_edi_amount_exonerated),
 			'total_igv': abs(self.l10n_pe_edi_amount_igv),
-			'total_isc': abs(self.l10n_pe_edi_amount_isc),
-			'total_impuestos_bolsas': abs(self.l10n_pe_edi_amount_icbper),
-			'total_otros_cargos': abs(self.l10n_pe_edi_amount_others),
 			'total_gratuita': abs(self.l10n_pe_edi_amount_free),
+			'total_otros_cargos': abs(self.l10n_pe_edi_amount_others),
+			'total_isc': abs(self.l10n_pe_edi_amount_isc),
 			'total': abs(self.amount_total),
-			'detraccion': 'false',
+			'total_impuestos_bolsas': abs(self.l10n_pe_edi_amount_icbper),
 			'observaciones': self.narration or '',
-			'documento_que_se_modifica_tipo': self.reversed_entry_id and 
-											(self.l10n_pe_edi_reversal_serie and self.l10n_pe_edi_reversal_serie[0] == 'F' and '1' or '2') or 
-											(self.l10n_pe_edi_reversal_serie and self.l10n_pe_edi_reversal_serie[0] == 'F' and '1' or '2') or '',
+			'documento_que_se_modifica_tipo': self.l10n_pe_edi_reversal_type and int(self.l10n_pe_edi_reversal_type) or '',
 			'documento_que_se_modifica_serie': self.l10n_pe_edi_reversal_serie or '',
 			'documento_que_se_modifica_numero': self.l10n_pe_edi_reversal_number or '',
 			'tipo_de_nota_de_credito': self.l10n_pe_edi_reversal_type_id and int(self.l10n_pe_edi_reversal_type_id.code) or '',
 			'tipo_de_nota_de_debito': self.l10n_pe_edi_debit_type_id and int(self.l10n_pe_edi_debit_type_id.code) or '',
-			'enviar_automaticamente_al_cliente': 'false',
+			'enviar_automaticamente_al_cliente': self.journal_id.l10n_pe_edi_send_to_client and 'true' or 'false',
+			'codigo_unico': '%s|%s|%s-%s' %('odoo',self.company_id.partner_id.vat,self.l10n_pe_edi_serie,str(self.l10n_pe_edi_number)),
+			'condiciones_de_pago': self.invoice_payment_term_id and self.invoice_payment_term_id.name or '',
+			'medio_de_pago': self.l10n_pe_edi_is_sale_credit and 'venta_al_credito' or '',
 			"orden_compra_servicio": self.l10n_pe_edi_service_order or '',
-			'condiciones_de_pago': self.invoice_payment_term_id and self.invoice_payment_term_id.name or '',  
+			"generado_por_contingencia": self.journal_id.l10n_pe_edi_contingency and 'true' or 'false',
 			'items': getattr(self,'_get_invoice_line_values_%s' % self._get_ose_supplier())(self.invoice_line_ids),
-			'guias': self._get_invoice_picking_number_values(self.l10n_pe_edi_picking_number_ids),
+			'guias': getattr(self,'_get_invoice_picking_values_%s' % self._get_ose_supplier())(self.l10n_pe_edi_picking_number_ids),
+			'venta_al_credito': getattr(self,'_get_dues_values_%s' % self._get_ose_supplier())(self.l10n_pe_edi_dues_ids),
 			'provider': 'odoo',
 			}
 		return values
@@ -678,12 +694,14 @@ class AccountMove(models.Model):
 		res = []
 		for line in lines:
 			if line.display_type == False:
+				# sign = line.move_id.move_type in ['in_refund', 'out_refund'] and -1 or 1
+				if line.price_subtotal < 0 and not line.l10n_pe_edi_regularization_advance:
+					continue
 				values = {
 					'unidad_de_medida': line.product_uom_id and 
 										(line.product_uom_id.l10n_pe_edi_uom_code_id and line.product_uom_id.l10n_pe_edi_uom_code_id.code or False) or 
 										(line.product_id and (line.product_id.type != 'service' and 'NIU' or 'ZZ') or 'ZZ'),
 					'codigo': line.product_id and line.product_id.default_code or '',
-					'codigo_producto_sunat': line.product_id.l10n_pe_edi_product_code_id and line.product_id.l10n_pe_edi_product_code_id.code or '',
 					'descripcion': line.name,
 					'cantidad': abs(line.quantity),
 					'valor_unitario': abs(line.l10n_pe_edi_price_unit_excluded),
@@ -692,13 +710,38 @@ class AccountMove(models.Model):
 					'subtotal': abs(line.l10n_pe_edi_amount_free if line.l10n_pe_edi_free_product else line.price_subtotal),
 					'tipo_de_igv': line.l10n_pe_edi_igv_type.code_of,
 					'igv': abs(line.l10n_pe_edi_igv_amount),
-					"tipo_de_isc": line.l10n_pe_edi_isc_type and line.l10n_pe_edi_isc_type.code or '',
-					"isc": abs(line.l10n_pe_edi_isc_amount),
 					"impuesto_bolsas": abs(line.l10n_pe_edi_icbper_amount),
 					'total': abs(line.l10n_pe_edi_amount_free if line.l10n_pe_edi_free_product else line.price_total),
+					'anticipo_regularizacion': line.l10n_pe_edi_regularization_advance and 'true' or 'false',
+					'anticipo_documento_serie': line.l10n_pe_edi_regularization_advance and line.l10n_pe_edi_advance_serie or '',
+					'anticipo_documento_numero': line.l10n_pe_edi_regularization_advance and str(line.l10n_pe_edi_advance_number) or '',
+					'codigo_producto_sunat': line.product_id.l10n_pe_edi_product_code_id and line.product_id.l10n_pe_edi_product_code_id.code or '',
+					"tipo_de_isc": line.l10n_pe_edi_isc_type and line.l10n_pe_edi_isc_type.code or '',
+					"isc": abs(line.l10n_pe_edi_isc_amount),
 					}
 				res.append(values)
 		return res
+	
+	def _get_invoice_picking_values_odoofact(self, pick_numbers):
+		data = []
+		for pick in pick_numbers:
+			values = {
+				'guia_tipo': int(pick.type),
+				'guia_serie_numero': pick.name
+			}
+			data.append(values)
+		return data
+	
+	def _get_dues_values_odoofact(self, dues):
+		data = []
+		if self.l10n_pe_edi_is_sale_credit:
+			for due in dues:
+				data.append({
+					'cuota': due.dues_number,
+					'fecha_de_pago': datetime.strptime(str(due.paid_date), "%Y-%m-%d").strftime("%d-%m-%Y"),
+					'importe': abs(due.amount),
+				})
+		return data
 	
 	def _get_ose_supplier(self):
 		"""
@@ -725,7 +768,8 @@ class AccountMove(models.Model):
 				continue
 			if move.company_id.l10n_pe_edi_multishop and not move.l10n_pe_edi_shop_id:
 				raise UserError(_("Review the Journal configuration and select a shop: \n Journal: %s")% (move.journal_id.name))
-			#Get invoice data depending of PSE/OSE supplier
+			
+			# Get invoice data depending of PSE/OSE supplier
 			if not move.company_id.sfs_path:
 				ose_supplier = move._get_ose_supplier()
 			# vals = getattr(move,'_get_invoice_values_%s' % ose_supplier)()
@@ -745,6 +789,7 @@ class AccountMove(models.Model):
 			# 	l10n_pe_edi_request_id.action_api_connect(vals)
 			# else:
 			# 	move.action_document_check()
+			
 			move.get_invoice_values_sfs()
 			if not move.l10n_pe_edi_request_id:
 				l10n_pe_edi_request_id = move.env['l10n_pe_edi.request'].create({
@@ -772,8 +817,9 @@ class AccountMove(models.Model):
 		Prepare the dict of values to create the request for checking the document status. Valid for Nubefact.
 		"""
 		self.ensure_one()
-		values = {    
+		values = {
 			'company_id': self.company_id.id,
+			'l10n_pe_edi_shop_id': self.l10n_pe_edi_shop_id and self.l10n_pe_edi_shop_id.id or False,
 			'operacion': 'consultar_comprobante',                
 			'tipo_de_comprobante': self.l10n_latam_document_type_id.type_of,
 			'serie': self.l10n_pe_edi_serie,
@@ -788,6 +834,7 @@ class AccountMove(models.Model):
 		self.ensure_one()
 		values = {
 			'company_id': self.company_id.id,
+			'l10n_pe_edi_shop_id': self.l10n_pe_edi_shop_id and self.l10n_pe_edi_shop_id.id or False,
 			'operacion': 'generar_anulacion',
 			'tipo_de_comprobante': self.l10n_latam_document_type_id.type_of,
 			'motivo': self._context.get('reason',_('Null document')), 
@@ -800,8 +847,7 @@ class AccountMove(models.Model):
 	def action_document_send_cancel(self):
 		''' Cancel the invoice and send the cancelation request for electronic invoice '''
 		for move in self:
-			if not move.company_id.sfs_path:
-				ose_supplier = move._get_ose_supplier()
+			ose_supplier = move._get_ose_supplier()
 			# Send invoice if it hasn't sent
 			if not move.l10n_pe_edi_request_id:
 				move.action_document_send()
@@ -831,6 +877,7 @@ class AccountMove(models.Model):
 		self.ensure_one()
 		values = {    
 			'company_id': self.company_id.id,
+			'l10n_pe_edi_shop_id': self.l10n_pe_edi_shop_id and self.l10n_pe_edi_shop_id.id or False,
 			'operacion': 'consultar_anulacion',                
 			'tipo_de_comprobante': self.l10n_latam_document_type_id.type_of,
 			'serie': self.l10n_pe_edi_serie,
@@ -844,18 +891,13 @@ class AccountMove(models.Model):
 		"""
 		for move in self:
 			# For canceled Invoices 
-			if not move.company_id.sfs_path:
-				ose_supplier = move._get_ose_supplier()
+			ose_supplier = move._get_ose_supplier()
 			if cancel:
 				vals = getattr(move,'_get_invoice_cancel_values_check_%s' % ose_supplier)()
 			else:
 				vals = getattr(move,'_get_invoice_values_check_%s' % ose_supplier)()
 			if move.l10n_pe_edi_request_id:
-				# move.l10n_pe_edi_request_id.action_api_connect(vals)
-				ruc_inv = move.company_id.vat
-				num_inv = str(move.l10n_pe_edi_number).rjust(8, '0')
-				title = ruc_inv +'-'+ move.l10n_latam_document_type_id.code +'-'+ move.l10n_pe_edi_serie + '-' + num_inv
-				l10n_pe_edi_request_id.action_api_connect_sfs(title)
+				move.l10n_pe_edi_request_id.action_api_connect(vals)
 			elif not move.l10n_pe_edi_is_einvoice:
 				continue
 			else:
@@ -907,12 +949,14 @@ class AccountMove(models.Model):
 
 		starting_sequence = "%s-%06d" % (self.journal_id.code, 0)
 		if self.journal_id.refund_sequence and self.move_type in ('out_refund'):
-			starting_sequence = starting_sequence
+			starting_sequence = "NC" + starting_sequence
 		return starting_sequence
 
 	# For the resequence method Wizard
 	def _deduce_sequence_number_reset(self, name):
-		if self.env.company.country_id.code == "PE":
+		# FIXED for avoid error in sequences
+		# if self.env.company.country_id.code == "PE":
+		if self.env.company.country_id.code == "PE" and self.move_type not in ('entry', 'in_invoice','in_refund','in_receipt'):        
 			return 'never'
 		return super(AccountMove, self)._deduce_sequence_number_reset(name)
 	
@@ -949,8 +993,12 @@ class AccountMoveLine(models.Model):
 	l10n_pe_edi_price_unit_excluded = fields.Float(string='Price unit excluded', store=True, readonly=True, digits='Product Price', help="Price unit without taxes")
 	l10n_pe_edi_price_unit_included = fields.Float(string='Price unit IGV included', store=True, readonly=True, digits='Product Price', help="Price unit with IGV included")
 	l10n_pe_edi_amount_discount = fields.Monetary(string='Amount discount before taxes', store=True, readonly=True, currency_field='currency_id', help='Amount discount before taxes')
-	l10n_pe_edi_amount_free = fields.Monetary(string='Amount free', store=True, readonly=True, currency_field='currency_id', help='amount calculated if the line id for free product')
+	l10n_pe_edi_amount_free = fields.Float(string='Amount free', store=True, readonly=True, digits='Product Price', help='amount calculated if the line id for free product')
 	l10n_pe_edi_free_product = fields.Boolean('Free', store=True, readonly=True, default=False, help='Is free product?')
+	l10n_pe_edi_regularization_advance = fields.Boolean(string='Regularization Advance')
+	l10n_pe_edi_advance_serie = fields.Char(string='Advance Serie')
+	l10n_pe_edi_advance_number = fields.Integer(string='Advance Number')
+	
 	# ==== Tax fields ====    
 	l10n_pe_edi_igv_type = fields.Many2one('l10n_pe_edi.catalog.07', string="Type of IGV", compute='_compute_igv_type', store=True, readonly=False)
 	l10n_pe_edi_isc_type = fields.Many2one('l10n_pe_edi.catalog.08', string="Type of ISC", compute='_compute_isc_type', store=True, readonly=False)
@@ -963,7 +1011,12 @@ class AccountMoveLine(models.Model):
 		for line in self:
 			if line.discount >= 100.0:  
 				# Discount >= 100% means the product is free and the IGV type should be 'No onerosa' and 'taxed'
-				line.l10n_pe_edi_igv_type = self.env['l10n_pe_edi.catalog.07'].search([('type','=','taxed'),('no_onerosa','=',True)], limit=1).id
+				tax_free = self.env['account.tax'].search([('l10n_pe_edi_tax_code','=','9996')], limit=1)
+				if tax_free:
+					tax_id = tax_free.id
+					line.tax_ids = [(6,0,[tax_id])]
+				line.l10n_pe_edi_igv_type = self.env['l10n_pe_edi.catalog.07'].search([('code','=','15')], limit=1).id
+				
 			elif any(tax.l10n_pe_edi_tax_code in ['1000'] for tax in line.tax_ids):
 				# Tax with code '1000' is IGV
 				line.l10n_pe_edi_igv_type = self.env['l10n_pe_edi.catalog.07'].search([('code','=','10')], limit=1).id
@@ -993,6 +1046,7 @@ class AccountMoveLine(models.Model):
 		'''
 		res = super(AccountMoveLine, self)._get_price_total_and_subtotal_model(price_unit, quantity, discount, currency, product, partner, taxes, move_type)
 		l10n_pe_edi_price_base = quantity * price_unit
+		l10n_pe_edi_price_unit_excluded = price_unit
 		l10n_pe_edi_price_unit_included = price_unit
 		l10n_pe_edi_igv_amount = 0.0
 		l10n_pe_edi_isc_amount = 0.0
@@ -1015,8 +1069,8 @@ class AccountMoveLine(models.Model):
 				# Compute taxes per unit
 				l10n_pe_edi_price_unit_included = l10n_pe_edi_price_unit_included_signed = quantity != 0 and taxes_res['total_included']/quantity or 0.0 if igv_taxes_ids else price_unit
 				res['l10n_pe_edi_price_unit_included'] = l10n_pe_edi_price_unit_included
-				#~ IGV amount after discount for all line                
-				l10n_pe_edi_igv_amount = sum( r['amount'] for r in taxes_discount['taxes'] if r['id'] in igv_taxes_ids.ids) 
+				#~ IGV amount after discount for all line
+				l10n_pe_edi_igv_amount = sum( r['amount'] for r in taxes_discount['taxes'] if r['id'] in igv_taxes_ids.ids)
 			l10n_pe_edi_price_base = l10n_pe_edi_price_base_signed = taxes_res['total_excluded']
 			res['l10n_pe_edi_price_base'] = l10n_pe_edi_price_base 
 
@@ -1028,7 +1082,7 @@ class AccountMoveLine(models.Model):
 
 			#~ With ICBPER taxes
 			icbper_taxes_ids = taxes.filtered(lambda r: r.tax_group_id.name == 'ICBPER')
-			if isc_taxes_ids:
+			if icbper_taxes_ids:
 				#~ ISC amount after discount for all line
 				l10n_pe_edi_icbper_amount = sum( r['amount'] for r in taxes_discount['taxes'] if r['id'] in icbper_taxes_ids.ids) 
 
@@ -1039,15 +1093,15 @@ class AccountMoveLine(models.Model):
 			l10n_pe_edi_icbper_amount = 0.0   # When the product is free, icbper = 0
 			l10n_pe_edi_amount_discount = 0.0  # Although the product has 100% discount, the amount of discount in a free product is 0             
 			l10n_pe_edi_free_product = True
-			l10n_pe_edi_amount_free = price_unit * quantity
+			l10n_pe_edi_amount_free = l10n_pe_edi_price_unit_included * quantity
 		else:
-			l10n_pe_edi_amount_discount = (l10n_pe_edi_price_unit_included * discount * quantity) / 100
+			l10n_pe_edi_amount_discount = (l10n_pe_edi_price_unit_excluded * discount * quantity) / 100
 			l10n_pe_edi_free_product = False
-			l10n_pe_edi_amount_free = 0.0        
+			l10n_pe_edi_amount_free = 0.0
 		res['l10n_pe_edi_amount_discount'] = l10n_pe_edi_amount_discount
 		res['l10n_pe_edi_amount_free'] = l10n_pe_edi_amount_free
 		res['l10n_pe_edi_free_product'] = l10n_pe_edi_free_product
-		res['l10n_pe_edi_igv_amount'] = l10n_pe_edi_igv_amount            
-		res['l10n_pe_edi_isc_amount'] = l10n_pe_edi_isc_amount            
-		res['l10n_pe_edi_icbper_amount'] = l10n_pe_edi_icbper_amount            
+		res['l10n_pe_edi_igv_amount'] = l10n_pe_edi_igv_amount
+		res['l10n_pe_edi_isc_amount'] = l10n_pe_edi_isc_amount
+		res['l10n_pe_edi_icbper_amount'] = l10n_pe_edi_icbper_amount
 		return res   
