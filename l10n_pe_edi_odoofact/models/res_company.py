@@ -35,7 +35,6 @@ class ResCompany(models.Model):
         ('daily', 'Daily')],
         default='daily', string='Interval Unit for sending')
     l10n_pe_edi_send_invoice_next_execution_date = fields.Datetime(string="Next Execution")
-    sfs_path = fields.Char('Ubicación SFS')
 
     @api.model
     def run_send_invoice(self):

@@ -34,9 +34,6 @@
             </button>
             <button name="button_draft" position="after">
                 <button name="%(l10n_pe_edi_move_cancel_action)d" string="Cancel in SUNAT" type="action" class="btn btn-danger" attrs="{'invisible':['|','|',('state','!=','posted'), ('l10n_pe_edi_ose_accepted','=',False),('l10n_pe_edi_is_einvoice','=',False)]}" groups="account.group_account_manager"/>			
-                <button name="responseXML" string="XML SFS" type="object" class="oe_highlight" groups="account.group_account_manager"/>			
-                <button name="generateXML" string="XML Sent" type="object" groups="account.group_account_manager" attrs="{'invisible':True}"/>
-                <button name="invoice_return_xml" string="Print XML" type="object" attrs="{'invisible':True}"/>
             </button>
             <xpath expr="//group[@id='header_left_group']" position="inside">
                 <div class="o_td_label" attrs="{'invisible': ['|',('move_type', 'not in', ('out_invoice', 'out_refund', 'out_receipt')),('l10n_pe_edi_is_einvoice','=',False)]}">
